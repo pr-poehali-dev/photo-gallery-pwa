@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/hooks/use-toast';
 import Icon from '@/components/ui/icon';
 
 interface Photo {
@@ -20,7 +23,9 @@ interface Photo {
   };
 }
 
-const photos: Photo[] = [
+const BACKEND_URL = 'https://functions.poehali.dev/54c54fb3-5689-4a6e-b923-e50fb3e0d429';
+
+const mockPhotos: Photo[] = [
   {
     id: 1,
     url: 'https://cdn.poehali.dev/projects/a0151bbd-86e4-4861-990a-fd3a4441d6bb/files/bd80dd4f-71dd-4704-ba40-593fcd579438.jpg',
@@ -122,6 +127,91 @@ const photos: Photo[] = [
 const Index = () => {
   const [selectedPhoto, setSelectedPhoto] = useState<Photo | null>(null);
   const [activeView, setActiveView] = useState<'gallery' | 'map'>('gallery');
+  const [photos, setPhotos] = useState<Photo[]>(mockPhotos);
+  const [isUploading, setIsUploading] = useState(false);
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [uploadForm, setUploadForm] = useState({ title: '', location: '' });
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    loadPhotos();
+  }, []);
+
+  const loadPhotos = async () => {
+    try {
+      const response = await fetch(BACKEND_URL);
+      const data = await response.json();
+      if (data.photos && data.photos.length > 0) {
+        setPhotos(data.photos);
+      }
+    } catch (error) {
+      console.error('Error loading photos:', error);
+    }
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!uploadForm.title || !uploadForm.location) {
+      toast({
+        title: 'Заполните все поля',
+        description: 'Укажите название и место съёмки',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const imageBase64 = event.target?.result as string;
+        
+        const uploadUrl = `https://cdn.poehali.dev/upload`;
+        const uploadResponse = await fetch(uploadUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ file: imageBase64 })
+        });
+        const uploadData = await uploadResponse.json();
+        
+        const response = await fetch(BACKEND_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: imageBase64,
+            title: uploadForm.title,
+            location: uploadForm.location,
+            url: uploadData.url
+          })
+        });
+
+        const data = await response.json();
+        
+        if (data.photo) {
+          setPhotos([data.photo, ...photos]);
+          toast({
+            title: 'Фото загружено!',
+            description: 'Данные EXIF успешно извлечены'
+          });
+          setShowUploadDialog(false);
+          setUploadForm({ title: '', location: '' });
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (error) {
+      toast({
+        title: 'Ошибка загрузки',
+        description: 'Попробуйте ещё раз',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -133,6 +223,13 @@ const Index = () => {
               <p className="text-sm text-muted-foreground mt-1">Истории из путешествий по миру</p>
             </div>
             <div className="flex gap-2">
+              <Button
+                onClick={() => setShowUploadDialog(true)}
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                <Icon name="Plus" className="mr-2" size={18} />
+                Добавить фото
+              </Button>
               <button
                 onClick={() => setActiveView('gallery')}
                 className={`px-4 py-2 rounded-lg font-medium transition-all ${
@@ -304,6 +401,73 @@ const Index = () => {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+        <DialogContent className="max-w-md">
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold mb-2">Добавить фотографию</h2>
+              <p className="text-muted-foreground text-sm">
+                EXIF данные будут извлечены автоматически
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Название
+                </label>
+                <Input
+                  type="text"
+                  placeholder="Например: Рассвет в горах"
+                  value={uploadForm.title}
+                  onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Местоположение
+                </label>
+                <Input
+                  type="text"
+                  placeholder="Например: Альпы, Швейцария"
+                  value={uploadForm.location}
+                  onChange={(e) => setUploadForm({ ...uploadForm, location: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="w-full"
+                  variant="outline"
+                >
+                  {isUploading ? (
+                    <>
+                      <Icon name="Loader2" className="mr-2 animate-spin" size={18} />
+                      Загрузка...
+                    </>
+                  ) : (
+                    <>
+                      <Icon name="Upload" className="mr-2" size={18} />
+                      Выбрать фото
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
