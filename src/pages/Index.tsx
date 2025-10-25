@@ -168,47 +168,53 @@ const Index = () => {
     try {
       const reader = new FileReader();
       reader.onload = async (event) => {
-        const imageBase64 = event.target?.result as string;
-        
-        const uploadUrl = `https://cdn.poehali.dev/upload`;
-        const uploadResponse = await fetch(uploadUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ file: imageBase64 })
-        });
-        const uploadData = await uploadResponse.json();
-        
-        const response = await fetch(BACKEND_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            image: imageBase64,
-            title: uploadForm.title,
-            location: uploadForm.location,
-            url: uploadData.url
-          })
-        });
-
-        const data = await response.json();
-        
-        if (data.photo) {
-          setPhotos([data.photo, ...photos]);
-          toast({
-            title: 'Фото загружено!',
-            description: 'Данные EXIF успешно извлечены'
+        try {
+          const imageBase64 = event.target?.result as string;
+          
+          const response = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              image: imageBase64,
+              title: uploadForm.title,
+              location: uploadForm.location,
+              url: imageBase64
+            })
           });
-          setShowUploadDialog(false);
-          setUploadForm({ title: '', location: '' });
+
+          const data = await response.json();
+          
+          if (data.photo) {
+            setPhotos([data.photo, ...photos]);
+            toast({
+              title: 'Фото загружено!',
+              description: 'Данные EXIF успешно извлечены'
+            });
+            setShowUploadDialog(false);
+            setUploadForm({ title: '', location: '' });
+            if (fileInputRef.current) {
+              fileInputRef.current.value = '';
+            }
+          }
+        } catch (error) {
+          console.error('Upload error:', error);
+          toast({
+            title: 'Ошибка загрузки',
+            description: 'Попробуйте ещё раз',
+            variant: 'destructive'
+          });
+        } finally {
+          setIsUploading(false);
         }
       };
       reader.readAsDataURL(file);
     } catch (error) {
+      console.error('File read error:', error);
       toast({
-        title: 'Ошибка загрузки',
-        description: 'Попробуйте ещё раз',
+        title: 'Ошибка чтения файла',
+        description: 'Попробуйте другое изображение',
         variant: 'destructive'
       });
-    } finally {
       setIsUploading(false);
     }
   };
